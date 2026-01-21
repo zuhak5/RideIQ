@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RideShare</title>
+  </head>
+  <body>
+    <script type="text/javascript">
+      // GitHub Pages SPA fallback.
+      // Based on: https://github.com/rafgraph/spa-github-pages
+      //
+      // For GitHub Pages "project" sites, URLs look like:
+      //   https://<user>.github.io/<repo>/...
+      // We keep 1 path segment (the repo name) and rewrite the rest into a query string:
+      //   /<repo>/<route>  ->  /<repo>/?/<route>
+      // index.html then converts the query string back into a clean path.
+      (function () {
+        var segmentCount = 1;
+        var l = window.location;
+        var repoBase = l.pathname.split('/').slice(0, 1 + segmentCount).join('/');
+        var route = l.pathname.split('/').slice(1 + segmentCount).join('/');
+        var search = l.search ? l.search.replace(/&/g, '~and~') : '';
+        l.replace(l.protocol + '//' + l.host + repoBase + '/?/' + route + search + l.hash);
+      })();
+    </script>
+    <noscript>JavaScript is required to run this app.</noscript>
+  </body>
+</html>
