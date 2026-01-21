@@ -25,26 +25,17 @@ jobs:
         with:
           node-version: 20
 
-      # Install pnpm (reads `packageManager` from package.json when present)
-      # and cache the pnpm store for faster installs.
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          cache: true
-
-      - name: Show versions (debug)
-        run: |
-          node --version
-          pnpm --version
+          run_install: false
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
       - name: Build
         env:
-          # GitHub Pages project sites are served from /<repo>/
           VITE_BASE: /${{ github.event.repository.name }}/
-          # Required to build the frontend (set these as repo secrets)
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: pnpm run build
