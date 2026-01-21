@@ -23,6 +23,22 @@ jobs:
         with:
           run_install: false
 
+      - name: Configure npm registry
+        run: |
+          npm config set registry https://registry.npmjs.org/
+          pnpm config set registry https://registry.npmjs.org/
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+          npm config set fetch-timeout 600000
+
+      - name: Guard against internal registry lockfile
+        run: |
+          if grep -R "packages.applied-caas-gateway" pnpm-lock.yaml; then
+            echo "pnpm-lock.yaml contains internal registry URLs. Regenerate lockfile using npmjs registry."
+            exit 1
+          fi
+
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
