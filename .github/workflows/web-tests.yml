@@ -17,12 +17,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
 
-      - name: Enable pnpm via Corepack
+      # Install pnpm (reads `packageManager` from package.json when present)
+      # and cache the pnpm store for faster installs.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          cache: true
+
+      - name: Show versions (debug)
         run: |
-          corepack enable
-          corepack prepare pnpm@9.0.0 --activate
+          node --version
+          pnpm --version
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
