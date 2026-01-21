@@ -55,32 +55,55 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           <div className="text-lg font-semibold">Welcome</div>
           <div className="text-sm text-gray-500 mt-1">Sign in to test the rider/driver flows.</div>
 
-          <div className="mt-6 space-y-3">
+          <form
+            className="mt-6 space-y-3"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setError(null);
+
+              // IMPORTANT: Don't detach auth methods (they rely on `this`).
+              // Calling them as standalone functions breaks the internal context and can crash.
+              const res =
+                mode === 'signIn'
+                  ? await supabase.auth.signInWithPassword({ email, password })
+                  : await supabase.auth.signUp({ email, password });
+
+              if (res.error) setError(res.error.message);
+            }}
+          >
             <div>
               <div className="label">Email</div>
-              <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+              <input
+                className="input"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+                required
+              />
             </div>
             <div>
               <div className="label">Password</div>
-              <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+              <input
+                className="input"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete={mode === 'signUp' ? 'new-password' : 'current-password'}
+                required
+              />
             </div>
 
             {error && <div className="text-sm text-red-600">{error}</div>}
 
-            <button
-              className="btn btn-primary w-full"
-              onClick={async () => {
-                setError(null);
-                const fn = mode === 'signIn' ? supabase.auth.signInWithPassword : supabase.auth.signUp;
-                const { error } = await fn({ email, password });
-                if (error) setError(error.message);
-              }}
-            >
+            <button className="btn btn-primary w-full" type="submit">
               {mode === 'signIn' ? 'Sign in' : 'Create account'}
             </button>
 
             <button
               className="btn w-full"
+              type="button"
               onClick={() => setMode((m) => (m === 'signIn' ? 'signUp' : 'signIn'))}
             >
               {mode === 'signIn' ? 'Need an account? Sign up' : 'Have an account? Sign in'}
@@ -89,7 +112,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             <div className="text-xs text-gray-500">
               For production you will likely use phone OTP and stricter onboarding for drivers.
             </div>
-          </div>
+          </form>
         </div>
       </div>
     );
