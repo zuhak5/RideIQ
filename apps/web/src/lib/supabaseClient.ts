@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import type { Database } from './database.types';
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -14,7 +13,7 @@ if (!isSupabaseConfigured) {
 }
 
 // Use a harmless placeholder when env is missing; the UI should prevent calls in that case.
-export const supabase = createClient<Database>(url ?? 'https://example.supabase.co', anon ?? 'public-anon-key', {
+export const supabase = createClient(url ?? 'https://example.supabase.co', anon ?? 'public-anon-key', {
   auth: {
     persistSession: true,
     autoRefreshToken: true,

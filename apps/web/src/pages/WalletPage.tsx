@@ -412,7 +412,7 @@ export default function WalletPage() {
   }, [enabledWithdrawMethods, withdrawKind]);
 
   const selectedPackage = (packagesQ.data ?? []).find((p) => p.id === packageId) ?? null;
-  const totalIqd = selectedPackage ? (selectedPackage.amount_iqd ?? 0) + (selectedPackage.bonus_iqd ?? 0) : 0;
+  const totalPoints = selectedPackage ? (selectedPackage.amount_iqd ?? 0) + (selectedPackage.bonus_iqd ?? 0) : 0;
 
   const acct = walletQ.data;
   const available = acct ? Math.max(0, (acct.balance_iqd ?? 0) - (acct.held_iqd ?? 0)) : 0;
@@ -556,7 +556,7 @@ export default function WalletPage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="text-lg font-semibold">Wallet</div>
-            <div className="text-sm text-gray-500 mt-1">Balance is denominated in IQD. All balance changes are recorded in the ledger.</div>
+            <div className="text-sm text-gray-500 mt-1">Points-only credits (1 point = 1 IQD). All balance changes are recorded in the ledger.</div>
           </div>
           <div className="flex flex-wrap gap-2">
             <TabButton active={tab === 'balance'} onClick={() => setTab('balance')}>Balance</TabButton>
@@ -646,7 +646,7 @@ export default function WalletPage() {
                 {selectedPackage.bonus_iqd > 0 ? (
                   <> + Bonus: <span className="font-semibold">{formatIQD(selectedPackage.bonus_iqd)}</span></>
                 ) : null}
-                {' '}= Total credited: <span className="font-semibold">{formatIQD(totalIqd)}</span>
+                {' '}= Total credited: <span className="font-semibold">{formatIQD(totalPoints)}</span>
               </div>
             ) : null}
 

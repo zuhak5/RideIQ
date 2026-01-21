@@ -16,14 +16,6 @@
 -- Clean foundation: explicit states, strict RLS, geo indexing, and server-side matching.
 
 -- Extensions
-
--- ==========================
--- ATOMIC APPLY
--- Everything below runs in a single transaction.
--- If ANY statement fails, PostgreSQL aborts the transaction and NONE of the changes are committed.
--- ==========================
-BEGIN;
-
 create schema if not exists extensions;
 create extension if not exists "pgcrypto" with schema extensions;
 create extension if not exists "postgis" with schema extensions;
@@ -658,6 +650,13 @@ using (
   )
 );
 
+-- 7) Restrict access to dispatch functions (Edge Functions only)
+revoke all on function public.dispatch_match_ride(uuid, uuid, numeric, integer, integer, integer) from public;
+revoke all on function public.dispatch_accept_ride(uuid, uuid) from public;
+
+grant execute on function public.dispatch_match_ride(uuid, uuid, numeric, integer, integer, integer) to service_role;
+grant execute on function public.dispatch_accept_ride(uuid, uuid) to service_role;
+
 -- =====================================================================
 -- MIGRATION: supabase/migrations/20260119000400_session2_fix.sql
 -- =====================================================================
@@ -679,6 +678,7 @@ with check (auth.uid() = rider_id and status = 'cancelled');
 -- 2) Enforce match_deadline when driver accepts
 
 -- Ensure privileges remain
+grant execute on function public.dispatch_accept_ride(uuid, uuid) to authenticated, service_role;
 
 -- =====================================================================
 -- MIGRATION: supabase/migrations/20260119000500_session4.sql
@@ -716,21 +716,6 @@ create unique index if not exists ux_payments_ride_succeeded
   on public.payments(ride_id)
   where status = 'succeeded';
 
-
--- App events (observability / audit trail) — used by edge functions (_shared/log.ts)
-create table if not exists public.app_events (
-  id uuid primary key default gen_random_uuid(),
-  created_at timestamptz not null default now(),
-  event_type text not null,
-  level text not null default 'info',
-  actor_id uuid,
-  actor_type text,
-  request_id text,
-  ride_id uuid references public.rides(id) on delete set null,
-  payment_intent_id uuid references public.payment_intents(id) on delete set null,
-  payload jsonb not null default '{}'::jsonb
-);
-
 create index if not exists ix_app_events_created_at
   on public.app_events(created_at desc);
 
@@ -740,10 +725,6 @@ create index if not exists ix_app_events_event_type
 create index if not exists ix_app_events_ride_id
   on public.app_events(ride_id);
 
-
-
-create index if not exists ix_app_events_level
-  on public.app_events(level);
 alter table public.app_events enable row level security;
 
 drop policy if exists "app_events_select_none" on public.app_events;
@@ -854,6 +835,13 @@ alter table public.payment_intents
 
 create index if not exists ix_payment_intents_provider_charge_id
   on public.payment_intents(provider_charge_id);
+
+-- 3) Observability levels
+alter table public.app_events
+  add column if not exists level text not null default 'info';
+
+create index if not exists ix_app_events_level
+  on public.app_events(level);
 
 -- 4) Admin reconciliation helpers (service_role only)
 
@@ -1339,7 +1327,7 @@ create index if not exists ix_rides_driver_created_at on public.rides(driver_id,
 
 -- Enums
 DO $$ BEGIN
-  CREATE TYPE public.payment_provider_kind AS ENUM ('zaincash','asiapay','qicard','manual');
+  CREATE TYPE public.payment_provider_kind AS ENUM ('zaincash','asiapay','manual');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 DO $$ BEGIN
@@ -1351,7 +1339,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 DO $$ BEGIN
-  CREATE TYPE public.wallet_entry_kind AS ENUM ('topup','ride_fare','withdrawal','adjustment');
+  CREATE TYPE public.wallet_entry_kind AS ENUM ('topup','ride_fare','adjustment');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Wallet accounts (one row per user)
@@ -1666,6 +1654,8 @@ GRANT EXECUTE ON FUNCTION public.wallet_get_my_account() TO authenticated;
 
 -- Service RPC: finalize a successful top-up (idempotent)
 
+REVOKE ALL ON FUNCTION public.wallet_finalize_topup(uuid, text, jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.wallet_finalize_topup(uuid, text, jsonb) TO service_role;
 
 -- Service RPC: mark a top-up failed (idempotent)
 CREATE OR REPLACE FUNCTION public.wallet_fail_topup(
@@ -1852,6 +1842,8 @@ revoke execute on function public.wallet_release_ride_hold(uuid) from authentica
 
 -- 4) Capture a hold (completion)
 
+grant execute on function public.wallet_capture_ride_hold(uuid) to service_role;
+revoke execute on function public.wallet_capture_ride_hold(uuid) from authenticated;
 
 -- 5) Patch dispatch_accept_ride to reserve funds on accept
 create or replace function public.dispatch_accept_ride(
@@ -1957,10 +1949,6 @@ begin
 end;
 $$;
 
-REVOKE ALL ON FUNCTION public.dispatch_accept_ride(uuid, uuid) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.dispatch_accept_ride(uuid, uuid) FROM authenticated;
-GRANT EXECUTE ON FUNCTION public.dispatch_accept_ride(uuid, uuid) TO service_role;
-
 revoke execute on function public.dispatch_accept_ride(uuid, uuid) from authenticated;
 grant execute on function public.dispatch_accept_ride(uuid, uuid) to service_role;
 
@@ -2053,7 +2041,7 @@ for each row execute function public.set_updated_at();
 
 -- 2) Ensure payments can store metadata (used by wallet capture)
 alter table public.payments
-  add column if not exists metadata jsonb not null default '{}'::jsonb;
+  add column if not exists metadata jsonb not null default {}::jsonb;
 
 -- 3) Ensure a single succeeded payment per ride (used by wallet_capture_ride_hold idempotency)
 create unique index if not exists ux_payments_ride_succeeded
@@ -2135,11 +2123,11 @@ begin
 end;
 $$;
 
-REVOKE ALL ON FUNCTION public.wallet_finalize_topup(uuid, text, jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.wallet_finalize_topup(uuid, text, jsonb) TO service_role;
-
 -- 4) Fix idempotent ledger insert for ride capture (wallet_entries has a PARTIAL unique index)
 
+revoke all on function public.wallet_capture_ride_hold(uuid) from public;
+grant execute on function public.wallet_capture_ride_hold(uuid) to service_role;
+revoke execute on function public.wallet_capture_ride_hold(uuid) from authenticated;
 -- =====================================================================
 -- MIGRATION: supabase/migrations/20260120000400_session12_pricing_iqd.sql
 -- =====================================================================
@@ -2192,6 +2180,14 @@ where code = 'zaincash' and enabled is distinct from true;
 -- =====================================================================
 -- Session 14: Add QiCard payment provider kind + seed provider row
 
+DO $$
+BEGIN
+  BEGIN
+    ALTER TYPE public.payment_provider_kind ADD VALUE 'qicard';
+  EXCEPTION WHEN duplicate_object THEN
+    NULL;
+  END;
+END$$;
 
 -- Seed a QiCard provider row (disabled by default). Update config values in prod.
 INSERT INTO public.payment_providers (code, kind, name, enabled, config)
@@ -2481,10 +2477,6 @@ begin
 end;
 $$;
 
-REVOKE ALL ON FUNCTION public.dispatch_match_ride(uuid, uuid, numeric, integer, integer, integer) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.dispatch_match_ride(uuid, uuid, numeric, integer, integer, integer) FROM authenticated;
-GRANT EXECUTE ON FUNCTION public.dispatch_match_ride(uuid, uuid, numeric, integer, integer, integer) TO service_role;
-
 revoke execute on function public.dispatch_match_ride(uuid, uuid, numeric, integer, integer, integer) from authenticated;
 grant execute on function public.dispatch_match_ride(uuid, uuid, numeric, integer, integer, integer) to service_role;
 
@@ -2603,10 +2595,8 @@ begin
 end;
 $$;
 
-
-REVOKE ALL ON FUNCTION public.wallet_capture_ride_hold(uuid) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.wallet_capture_ride_hold(uuid) FROM authenticated;
-GRANT EXECUTE ON FUNCTION public.wallet_capture_ride_hold(uuid) TO service_role;
+grant execute on function public.wallet_capture_ride_hold(uuid) to service_role;
+revoke execute on function public.wallet_capture_ride_hold(uuid) from authenticated;
 
 -- =====================================================================
 -- MIGRATION: supabase/migrations/20260120001000_session17_wallet_integrity.sql
@@ -2973,6 +2963,13 @@ DO $$ BEGIN
   CREATE TYPE public.wallet_hold_kind AS ENUM ('ride','withdraw');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$
+BEGIN
+  BEGIN
+    ALTER TYPE public.wallet_entry_kind ADD VALUE 'withdrawal';
+  EXCEPTION WHEN duplicate_object THEN NULL;
+  END;
+END$$;
 
 -- 2) Withdrawal requests table
 CREATE TABLE IF NOT EXISTS public.wallet_withdraw_requests (
@@ -3051,14 +3048,24 @@ CREATE POLICY "withdraw_update_admin_or_cancel_own"
 
 -- 5) RPC: Driver creates a withdrawal request (creates a hold)
 
+REVOKE ALL ON FUNCTION public.wallet_request_withdraw(bigint, public.withdraw_payout_kind, jsonb, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.wallet_request_withdraw(bigint, public.withdraw_payout_kind, jsonb, text) TO authenticated;
 
 -- 6) RPC: Driver cancels a withdrawal request (releases hold)
 
+REVOKE ALL ON FUNCTION public.wallet_cancel_withdraw(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.wallet_cancel_withdraw(uuid) TO authenticated;
 
 -- 7) Admin workflow: approve / reject / mark paid
 
+REVOKE ALL ON FUNCTION public.admin_withdraw_approve(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_withdraw_approve(uuid, text) TO authenticated;
 
+REVOKE ALL ON FUNCTION public.admin_withdraw_reject(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_withdraw_reject(uuid, text) TO authenticated;
 
+REVOKE ALL ON FUNCTION public.admin_withdraw_mark_paid(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_withdraw_mark_paid(uuid, text) TO authenticated;
 -- =====================================================================
 -- MIGRATION: supabase/migrations/20260121000200_session19_withdrawal_controls.sql
 -- =====================================================================
@@ -3513,7 +3520,6 @@ BEGIN
 END;
 $$;
 
-
 REVOKE ALL ON FUNCTION public.wallet_request_withdraw(bigint, public.withdraw_payout_kind, jsonb, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.wallet_request_withdraw(bigint, public.withdraw_payout_kind, jsonb, text) TO authenticated;
 
@@ -3579,7 +3585,6 @@ BEGIN
 END;
 $$;
 
-
 REVOKE ALL ON FUNCTION public.wallet_cancel_withdraw(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.wallet_cancel_withdraw(uuid) TO authenticated;
 
@@ -3625,7 +3630,6 @@ BEGIN
   );
 END;
 $$;
-
 
 REVOKE ALL ON FUNCTION public.admin_withdraw_approve(uuid, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.admin_withdraw_approve(uuid, text) TO authenticated;
@@ -3689,7 +3693,6 @@ BEGIN
   );
 END;
 $$;
-
 
 REVOKE ALL ON FUNCTION public.admin_withdraw_reject(uuid, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.admin_withdraw_reject(uuid, text) TO authenticated;
@@ -3777,7 +3780,6 @@ BEGIN
   );
 END;
 $$;
-
 
 REVOKE ALL ON FUNCTION public.admin_withdraw_mark_paid(uuid, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.admin_withdraw_mark_paid(uuid, text) TO authenticated;
@@ -3911,5 +3913,3 @@ $$;
 revoke all on function public.admin_record_ride_refund(uuid, integer, text) from public;
 grant execute on function public.admin_record_ride_refund(uuid, integer, text) to authenticated;
 grant execute on function public.admin_record_ride_refund(uuid, integer, text) to service_role;
-
-COMMIT;

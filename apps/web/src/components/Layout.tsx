@@ -1,7 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
-import { getIsAdmin } from '../lib/admin';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const loc = useLocation();
@@ -10,14 +9,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     let alive = true;
     (async () => {
-      try {
-        const isAdmin = await getIsAdmin();
-        if (!alive) return;
-        setIsAdmin(isAdmin);
-      } catch {
-        if (!alive) return;
+      const { data: sess } = await supabase.auth.getSession();
+      const uid = sess.session?.user.id;
+      if (!uid) return;
+      const { data, error } = await supabase.from('profiles').select('is_admin').eq('id', uid).maybeSingle();
+      if (!alive) return;
+      if (error) {
         setIsAdmin(false);
+        return;
       }
+      setIsAdmin(!!data?.is_admin);
     })();
     return () => {
       alive = false;

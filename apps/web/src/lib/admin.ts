@@ -2,7 +2,7 @@ import { supabase } from './supabaseClient';
 
 /**
  * Returns true if the current authenticated user is an admin.
- * Uses the public.is_admin() RPC (schema source of truth).
+ * Uses the profiles.is_admin flag.
  */
 export async function getIsAdmin(): Promise<boolean> {
   const { data: sess, error: sessErr } = await supabase.auth.getSession();
@@ -10,7 +10,7 @@ export async function getIsAdmin(): Promise<boolean> {
   const uid = sess.session?.user.id;
   if (!uid) return false;
 
-  const { data, error } = await supabase.rpc('is_admin');
+  const { data, error } = await supabase.from('profiles').select('is_admin').eq('id', uid).maybeSingle();
   if (error) throw error;
-  return Boolean(data);
+  return !!data?.is_admin;
 }

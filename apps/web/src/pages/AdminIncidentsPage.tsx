@@ -57,10 +57,10 @@ async function adminUpdateIncident(args: {
   if (error) throw error;
 }
 
-async function adminRecordRideRefund(rideId: string, amountIqd?: number, reason?: string): Promise<void> {
+async function adminRecordRideRefund(rideId: string, amountCents?: number, reason?: string): Promise<void> {
   const { error } = await supabase.rpc('admin_record_ride_refund', {
     p_ride_id: rideId,
-    p_refund_amount_iqd: amountIqd ?? null,
+    p_refund_amount_iqd: amountCents ?? null,
     p_reason: reason ?? null,
   });
   if (error) throw error;
